@@ -14,9 +14,7 @@ from mongostorage import (
 from scraper import (
     scrape_all_users,
     scrape_operations,
-    scrape_prices,
     refresh_dbstats,
-    scrape_comments,
     post_processing,
 )
 from utils import log_exception
@@ -33,14 +31,10 @@ def run(worker_name):
             if worker_name == 'scrape_operations':
                 mongo.ensure_indexes()
                 scrape_operations(mongo)
-            elif worker_name == 'scrape_comments':
-                scrape_comments(mongo)
             elif worker_name == 'post_processing':
                 post_processing(mongo)
             elif worker_name == 'scrape_all_users':
                 scrape_all_users(mongo, quick=False)
-            elif worker_name == 'scrape_prices':
-                scrape_prices(mongo)
             elif worker_name == 'refresh_dbstats':
                 refresh_dbstats(mongo)
             else:

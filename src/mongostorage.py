@@ -22,8 +22,6 @@ class MongoStorage(object):
         else:
             self.Blockchain = self.db['Blockchain']
             self.Accounts = self.db['Accounts']
-            self.Posts = self.db['Posts']
-            self.Comments = self.db['Comments']
             self.Operations = self.db['Operations']
             self.AccountOperations = self.db['AccountOperations']
             self.PriceHistory = self.db['PriceHistory']
@@ -36,9 +34,9 @@ class MongoStorage(object):
             self.db.drop_collection(col)
 
     def ensure_indexes(self):
-        self.Blockchain.create_index('previous', unique=True)
-        self.Blockchain.create_index('block_id', unique=True)
-        self.Blockchain.create_index([('block_num', -1)])
+        # self.Blockchain.create_index('previous', unique=True)
+        # self.Blockchain.create_index('block_id', unique=True)
+        # self.Blockchain.create_index([('block_num', -1)])
 
         self.Accounts.create_index('name', unique=True)
 
@@ -62,25 +60,25 @@ class MongoStorage(object):
         self.AccountOperations.create_index([('timestamp', -1)])
         self.AccountOperations.create_index([('index', -1)])
 
-        self.Posts.create_index([('author', 1), ('permlink', 1)], unique=True)
-        self.Posts.create_index([('identifier', 1)], unique=True)
-        self.Posts.create_index([('author', 1)])
-        self.Posts.create_index([('created', -1)])
-        self.Posts.create_index([('json_metadata.app', 1)], background=True, sparse=True)
-        self.Posts.create_index([('json_metadata.users', 1)], background=True, sparse=True)
-        self.Posts.create_index([('json_metadata.tags', 1)], background=True, sparse=True)
-        self.Posts.create_index([('json_metadata.community', 1)], background=True, sparse=True)
-        self.Posts.create_index([('body', 'text'), ('title', 'text')], background=True)
+        # self.Posts.create_index([('author', 1), ('permlink', 1)], unique=True)
+        # self.Posts.create_index([('identifier', 1)], unique=True)
+        # self.Posts.create_index([('author', 1)])
+        # self.Posts.create_index([('created', -1)])
+        # self.Posts.create_index([('json_metadata.app', 1)], background=True, sparse=True)
+        # self.Posts.create_index([('json_metadata.users', 1)], background=True, sparse=True)
+        # self.Posts.create_index([('json_metadata.tags', 1)], background=True, sparse=True)
+        # self.Posts.create_index([('json_metadata.community', 1)], background=True, sparse=True)
+        # self.Posts.create_index([('body', 'text'), ('title', 'text')], background=True)
 
-        self.Comments.create_index([('identifier', 1)], unique=True)
-        self.Comments.create_index([('parent_author', 1)])
-        self.Comments.create_index([('parent_permlink', 1)])
-        self.Comments.create_index([('author', 1)])
-        self.Comments.create_index([('permlink', 1)])
-        self.Comments.create_index([('created', -1)])
-        self.Comments.create_index([('body', 'text'), ('title', 'text')], background=True)
+        # self.Comments.create_index([('identifier', 1)], unique=True)
+        # self.Comments.create_index([('parent_author', 1)])
+        # self.Comments.create_index([('parent_permlink', 1)])
+        # self.Comments.create_index([('author', 1)])
+        # self.Comments.create_index([('permlink', 1)])
+        # self.Comments.create_index([('created', -1)])
+        # self.Comments.create_index([('body', 'text'), ('title', 'text')], background=True)
 
-        self.PriceHistory.create_index([('timestamp', -1)])
+        # self.PriceHistory.create_index([('timestamp', -1)])
 
         # 4 jesta's tools
         self.Operations.create_index(

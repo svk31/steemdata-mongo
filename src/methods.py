@@ -13,22 +13,7 @@ from toolz import pipe
 
 from utils import strip_dot_from_keys, safe_json_metadata
 
-
-def upsert_comment_chain(mongo, identifier, recursive=False):
-    """ Upsert given comments and its parent(s).
-    
-    Args:
-        mongo: mongodb instance
-        identifier: Post identifier
-        recursive: (Defaults to False). Recursively update all parent comments.
-    """
-    with suppress(PostDoesNotExist):
-        p = Post(identifier)
-        upsert_comment(mongo, p.identifier)
-        if recursive and p.is_comment():
-            parent_identifier = '@%s/%s' % (p.parent_author, p.parent_permlink)
-            upsert_comment_chain(mongo, parent_identifier, recursive)
-
+from accounts import myAccounts
 
 def get_comment(identifier):
     with suppress(PostDoesNotExist):
@@ -38,22 +23,9 @@ def get_comment(identifier):
             safe_json_metadata
         )
 
-
-def upsert_comment(mongo, identifier):
-    """ Upsert root post or comment. """
-    with suppress(PostDoesNotExist, DuplicateKeyError):
-        c = get_comment(identifier)
-        update = {'$set': {**c, 'updatedAt': dt.datetime.utcnow()}}
-        if c['depth'] > 0:
-            return mongo.Comments.update(
-                {'identifier': c['identifier']},
-                update, upsert=True)
-        return mongo.Posts.update({'identifier': c['identifier']}, update, upsert=True)
-
-
 def update_account(mongo, username, load_extras=True):
-    """ Update Account. 
-    
+    """ Update Account.
+
     If load_extras is True, update:
      - followers, followings
      - curation stats
@@ -61,31 +33,33 @@ def update_account(mongo, username, load_extras=True):
 
     """
     a = Account(username)
-    account = {
-        **typify(a.export(load_extras=load_extras)),
-        'account': username,
-        'updatedAt': dt.datetime.utcnow(),
-    }
-    if type(account['json_metadata']) is dict:
-        account['json_metadata'] = \
-            strip_dot_from_keys(account['json_metadata'])
-    if not load_extras:
-        account = {'$set': account}
-    try:
-        mongo.Accounts.update({'name': a.name}, account, upsert=True)
-    except WriteError:
-        # likely an invalid profile
-        account['json_metadata'] = {}
-        mongo.Accounts.update({'name': a.name}, account, upsert=True)
-        print("Invalidated json_metadata on %s" % a.name)
+    if a.name in myAccounts():
+        account = {
+            **typify(a.export(load_extras=load_extras)),
+            'account': username,
+            'updatedAt': dt.datetime.utcnow(),
+        }
+        if type(account['json_metadata']) is dict:
+            account['json_metadata'] = \
+                strip_dot_from_keys(account['json_metadata'])
+        if not load_extras:
+            account = {'$set': account}
+        try:
+            mongo.Accounts.update({'name': a.name}, account, upsert=True)
+        except WriteError:
+            # likely an invalid profile
+            account['json_metadata'] = {}
+            mongo.Accounts.update({'name': a.name}, account, upsert=True)
+            print("Invalidated json_metadata on %s" % a.name)
 
 
 def update_account_ops(mongo, username):
     """ This method will fetch entire account history, and back-fill any missing ops. """
-    for event in Account(username).history():
-        with suppress(DuplicateKeyError):
-            transform = compose(strip_dot_from_keys, remove_body, json_expand, typify)
-            mongo.AccountOperations.insert_one(transform(event))
+    if username in myAccounts():
+        for event in Account(username).history():
+            with suppress(DuplicateKeyError):
+                transform = compose(strip_dot_from_keys, remove_body, json_expand, typify)
+                mongo.AccountOperations.insert_one(transform(event))
 
 
 def account_operations_index(mongo, username):
@@ -107,14 +81,15 @@ def update_account_ops_quick(mongo, username, batch_size=200, steemd_instance=No
     start_index = account_operations_index(mongo, username)
 
     # fetch latest records and update the db
-    history = \
-        Account(username,
-                steemd_instance=steemd_instance).history_reverse(batch_size=batch_size)
-    for event in take(batch_size, history):
-        if event['index'] < start_index:
-            return
-        with suppress(DuplicateKeyError):
-            mongo.AccountOperations.insert_one(json_expand(typify(event)))
+    if username in myAccounts():
+        history = \
+            Account(username,
+                    steemd_instance=steemd_instance).history_reverse(batch_size=batch_size)
+        for event in take(batch_size, history):
+            if event['index'] < start_index:
+                return
+            with suppress(DuplicateKeyError):
+                mongo.AccountOperations.insert_one(json_expand(typify(event)))
 
 
 def find_latest_item(mongo, collection_name, field_name):
@@ -132,7 +107,6 @@ def parse_operation(op):
 
     update_accounts_light = set()
     update_accounts_full = set()
-    update_comments = set()
 
     def construct_identifier():
         return '@%s/%s' % (
@@ -161,11 +135,9 @@ def parse_operation(op):
 
     elif op_type in ['author_reward', 'comment']:
         update_accounts_light.add(op['author'])
-        update_comments.add(construct_identifier())
 
     elif op_type == 'vote':
         update_accounts_light.add(op['voter'])
-        update_comments.add(construct_identifier())
 
     elif op_type == 'cancel_transfer_from_savings':
         update_accounts_light.add(op['from'])
@@ -246,6 +218,5 @@ def parse_operation(op):
 
     return {
         'accounts': list(update_accounts_full),
-        'accounts_light': list(update_accounts_light),
-        'comments': list(update_comments),
+        'accounts_light': list(update_accounts_light)
     }

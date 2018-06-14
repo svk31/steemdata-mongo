@@ -6,7 +6,6 @@ from celery import Celery
 from methods import (
     update_account,
     update_account_ops_quick,
-    upsert_comment_chain,
     find_latest_item,
 )
 from mongostorage import (
@@ -85,27 +84,8 @@ def update_account_async(account_name, load_extras=False):
 
 
 @tasks.task(ignore_result=True)
-def update_comment_async(post_identifier, recursive=False):
-    upsert_comment_chain(mongo, post_identifier, recursive)
-
-
-@tasks.task(ignore_result=True)
 def batch_update_async(batch_items: dict):
     # todo break this batch into posts and account updates
-
-    if use_multi_threading:
-        with log_exceptions():
-            thread_multi(
-                fn=upsert_comment_chain,
-                fn_args=[mongo, None],
-                dep_args=batch_items['comments'],
-                fn_kwargs=dict(recursive=True),
-                max_workers=10,
-            )
-    else:
-        for identifier in batch_items['comments']:
-            with log_exceptions():
-                upsert_comment_chain(mongo, identifier, recursive=True)
 
     # if we're lagging by a large margin, don't bother updating accounts
     lag = time_delta(find_latest_item(mongo, 'Posts', 'created'))

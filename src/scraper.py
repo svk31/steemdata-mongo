@@ -27,7 +27,6 @@ from methods import (
     update_account,
     update_account_ops,
     update_account_ops_quick,
-    upsert_comment_chain,
     parse_operation,
     get_comment,
 )
@@ -39,6 +38,9 @@ from utils import (
     thread_multi,
 )
 
+from accounts import myAccounts
+
+logging.basicConfig(filename='scraper.log',level=logging.INFO)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
@@ -75,76 +77,6 @@ def scrape_operations(mongo):
 
 # Posts, Comments
 # ---------------
-def scrape_comments(mongo, batch_size=250, max_workers=50):
-    """ Parse operations and post-process for comment/post extraction. """
-    indexer = Indexer(mongo)
-    start_block = indexer.get_checkpoint('comments')
-
-    query = {
-        "type": "comment",
-        "block_num": {
-            "$gt": start_block,
-            "$lte": start_block + batch_size,
-        }
-    }
-    projection = {
-        '_id': 0,
-        'block_num': 1,
-        'author': 1,
-        'permlink': 1,
-    }
-    results = list(mongo.Operations.find(query, projection=projection))
-    identifiers = set(f"{x['author']}/{x['permlink']}" for x in results)
-
-    # handle an edge case when we are too close to the head,
-    # and the batch contains no work to do
-    if not results and is_recent(start_block, days=1):
-        return
-
-    # get Post.export() results in parallel
-    raw_comments = thread_multi(
-        fn=get_comment,
-        fn_args=[None],
-        dep_args=list(identifiers),
-        max_workers=max_workers,
-        re_raise_errors=True,
-    )
-    raw_comments = lkeep(raw_comments)
-
-    # split into root posts and comments
-    posts = lfilter(lambda x: x['depth'] == 0, raw_comments)
-    comments = lfilter(lambda x: x['depth'] > 0, raw_comments)
-
-    # Mongo upsert many
-    log_output = ''
-    if posts:
-        r = mongo.Posts.bulk_write(
-            [UpdateOne({'identifier': x['identifier']},
-                       {'$set': {**x, 'updatedAt': dt.datetime.utcnow()}},
-                       upsert=True)
-             for x in posts],
-            ordered=False,
-        )
-        log_output += \
-            f'(Posts: {r.upserted_count} upserted, {r.modified_count} modified) '
-    if comments:
-        r = mongo.Comments.bulk_write(
-            [UpdateOne({'identifier': x['identifier']},
-                       {'$set': {**x, 'updatedAt': dt.datetime.utcnow()}},
-                       upsert=True)
-             for x in comments],
-            ordered=False,
-        )
-        log_output += \
-            f'(Comments: {r.upserted_count} upserted, {r.modified_count} modified) '
-
-    # We are only querying {type: 'comment'} blocks and sometimes
-    # the gaps are larger than the batch_size.
-    index = silent(max)(lpluck('block_num', results)) or (start_block + batch_size)
-    indexer.set_checkpoint('comments', index)
-
-    log.info(f'Checkpoint: {index} {log_output}')
-
 
 # Accounts, AccountOperations
 # ---------------------------
@@ -160,10 +92,11 @@ def scrape_all_users(mongo, quick=False):
     indexer = Indexer(mongo)
 
     account_checkpoint = indexer.get_checkpoint('accounts')
-    if account_checkpoint:
-        usernames = list(get_usernames_batch(account_checkpoint, steem))
-    else:
-        usernames = list(get_usernames_batch(steem))
+    usernames = myAccounts()
+    # if account_checkpoint:
+    #     usernames = list(get_usernames_batch(account_checkpoint, steem))
+    # else:
+    #     usernames = list(get_usernames_batch(steem))
 
     for username in usernames:
         log.info('Updating @%s' % username)
@@ -211,16 +144,6 @@ def post_processing(mongo, batch_size=100, max_workers=50):
 
     batch_items = merge_with(custom_merge, *batches)
 
-    # upsert comments (recursively)
-    list(thread_multi(
-        fn=upsert_comment_chain,
-        fn_args=[mongo, None],
-        dep_args=batch_items['comments'],
-        fn_kwargs=dict(recursive=True),
-        max_workers=max_workers,
-        re_raise_errors=False,
-    ))
-
     # only process accounts if the blocks are recent
     # scrape_all_users should take care of stale updates
     if is_recent(start_block, days=10):
@@ -246,9 +169,8 @@ def post_processing(mongo, batch_size=100, max_workers=50):
     index = max(lpluck('block_num', results))
     indexer.set_checkpoint('post_processing', index)
 
-    log.info("Checkpoint: %s - %s comments, %s accounts (+%s full)" % (
+    log.info("Checkpoint: %s - %s accounts (+%s full)" % (
         index,
-        len(batch_items['comments']),
         len(batch_items['accounts_light']),
         len(batch_items['accounts']),
     ))
@@ -329,9 +251,9 @@ def run():
     from steemdata.helpers import timeit
     m = MongoStorage()
     m.ensure_indexes()
-    with timeit():
+    # with timeit():
         # scrape_operations(m)
-        scrape_comments(m)
+        # scrape_comments(m)
         # post_processing(m)
         # update_account(m, 'furion', load_extras=True)
         # update_account_ops(m, 'furion')
